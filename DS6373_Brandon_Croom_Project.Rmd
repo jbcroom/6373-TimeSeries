@@ -1,0 +1,1609 @@
+---
+title: "COVID-19 Time Series Analysis"
+author: "Brandon Croom"
+date: "11/20/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## General Overview
+
+The COVID-19 pandemic started in November 2019 and continued to spread across the world. The first cases in the United States were seen in late January/early February 2020, by late March 2020 states across the US began the process of issuing stay-at-home orders in order to limit the spread of the virus. The pandemic spread across the US in an extremely quick fashion forcing various stay-at-home restrictions to be put in place at the state level. As of this writing, many states had eased stay-at-home restrictions but were enacting other mandates, such as limiting gatherings and requiring face coverings where social distancing couldn't be practiced, as the the number of cases has continued to increase. 
+
+In North Carolina, Governor Roy Cooper and Dr. Mandy Cohen, Secretary of the North Carolina Department of Health and Human Services (NCDHHS) worked to ensure the best results for the public interest.Initially, stay-at-home orders were enforced to tamp down the virus spread. As various indicators began to trend in the appropriate direction, North Carolina moved into a phased re-opening plan. The initial re-opening steps still requested stay-at-home but did begin to allow businesses to open to limited capacity. After a few weeks the state moved into Phase Two, which allowed higher capacity in businesses, the beginning of school re-openings, and outdoor gatherings with a limited number of people and social distancing to occur. In the July 2020 timeframe, the stated moved to Phase 3a. In this phase, small indoor gatherings and a few additional businesses, such as bars, were allowed to open. Following the national trend of increased virus cases, in November 2020 the Governor enacted a mandatory face covering requirement in all indoor spaces and outdoor spaces where social distancing could not be practiced. 
+
+Evaluating and communicating to the general public the spread and impact of the virus has taken many forms. There have been many different metrics utilized over the course of the pandemic. Prior to testing being widely available, metrics included looking at estimated cases based on hospital bed capacities in use or counts of symptomatic individuals. These metrics were good at the outset however some metrics like symptomatic counts underrepresented populations due to certain individuals being asymptomatic but contracting the virus. As testing has become more prevalent and reliable the most common metric currently used is percent positive. 
+
+### Percent Positive Metric
+
+The percent positive metric is defined as the percentage of all COVID-19 tests performed that were performed. This metric allows for understanding if enough testing is being performed and what the current level of transmission of COVID-19 is within a community (or how hard you have to look to find cases). In essence, the percent positive metric can be thought of as a relative risk gauge. If the percent positive is high in an area there is a higher chance for exposure to the virus than if the percent positive rate is lower. If the percent positive is low that does not indicate herd immunity or no risk, it simply means that the level of transmission is low in that community or that not enough testing has been performed in the community. 
+
+On the negative side, the percent positive metric does not inform individuals of actual numbers of COVID-19 cases. Not all who have COVID-19 get tested and there are asymptomatic carrier who do not know they should get tested. These individuals would not be reflected in the percent positive metric and thus it cannot be leveraged as a total number of cases type calculation. Additionally, the percent positive metric can be influenced on a daily basis based on numbers of tests performed (or not performed) that day or any changes in testing numbers. For example, should a state report a high number of positive cases one day and then realize there was a reporting error or worse that the testing procedures invalidated the results, the percentage positive metric can move greatly over time. Additionally, there is no single version of percent positive that tells an individual what is good or bad. For example, one state may say that at a 3% positivity rate all school learning must take place remotely. In another state that requirement may be at 15%. Thus is becomes a relative metric for the location that an individual is in. 
+
+All in all the percent positive metric does provide a good indicator of relative risk for exposure to COVID-19. Even with the concerns outlined, the metric is currently is being leveraged by policy makers to enact policy for reopening schools and businesses and by public health officials to understand the current state of the pandemic. As this metric is continued to be leveraged, education about what this metric represents should be discussed. This continued reinforcement of the correct definition will help the general public understand the metric and hopefully reduce confusion around it. 
+
+Over the course of this document, a time-series based analysis will be performed to assist Governor Cooper and Dr. Cohen in understanding how COVID-19 can be forecast. The reader will be able to review all code and commentary around the code will be provided. The analysis will cover the entire US and North Carolina specifically. Multiple time series models will be analyzed in order to evaluate the modeling techniques and also provide guidance on how to approach the pandemic. 
+
+### Document Organization
+
+This document is organized in the following sections:
+
+* Data Description - provides an overview of the data
+* Data Preparation and Exploratory Data Analysis - provides information on the data cleanliness and structure
+* Time Series Analysis - provides information on the time series analysis of the data
+
+The Time Series Analysis section is broken into two sub parts:
+
+* United States Analysis
+* North Carolina Analysis
+
+Each of the time series subsections may be read independently. The sections do not build on each other. Thus a reader consuming the entire document may find repeat verbiage. This is done to allow the independence to occur.
+
+## Data Description
+
+In order to perform the analysis, COVID-19 data will be needed. There have been many R packaged developed to make obtaining COVID-19 data easy to obtain. For the purposes of this analysis two different packaged will be used.
+
+The first package is COVID19US (https://cran.r-project.org/web/packages/covid19us/index.html). This package is a wrapper around the COVID Tracking Project API (https://covidtracking.com/data/api). The COVID Tracking Project (https://covidtracking.com/) compiles data from each state in the United States on a daily basis to provide the most up to date information. This site has a high focus on testing information and the testing outcomes than actual case numbers. The data is sourced from state public health authorities or official statements. There is human interaction with the data that ensures accuracy and all data from each state is provided a grade to allow for understanding reliability. For North Carolina, the site grades the data as an A+ (https://covidtracking.com/data/#state-nc). The data from this site will allow for calculating the percent positive rate that will be used for analysis.
+
+The second package is COVDATA (https://kjhealy.github.io/covdata/). This package provides data related to hospitalizations, mobility information and other case information for the US and European countries. This data set works to maintain the consistency with the source data sets it sources data from, thus data is provided as is from those sites. Data cleanliness will need to be checked to ensure that does not impact analysis. As of this writing the data for this package was up to date through November 25, 2010.
+
+## Data Preparation and Exploratory Data Analysis
+
+The necessary R-packages needed for analysis are first loaded. These packages will allow for dataset loading as well and functionality for the timeseries analysis.  
+```{r, message=FALSE, warning=FALSE,output=FALSE}
+# Load Necessary Libraries
+library(tswge)
+library(covid19us) #The Covid Project Data Set
+library(covdata)
+library(tidyverse)
+library(nnfor)
+library(forecast)
+library(vars)
+library(RColorBrewer)
+```
+
+In this section, constants and variables are defined. Defining values in this way allows the reader, should they so chose, to change items once and assess the impact. For example, should the reader want to change the SHORT_TERM_FORECAST_HORIZON from 7 days to 5 days, thay can simply update that value and re-execute all the cells in this file. 
+```{r, message=FALSE, warning=FALSE, results = FALSE}
+# Define Constants
+
+SHORT_TERM_FORECAST_HORIZON = 7
+LONG_TERM_FORECAST_HORIZON = 90
+SAMPLE_SIZE_WINDOW = 100
+NN_REPS = 50
+DATE_FORMAT = "%m%d%Y"
+HOSPITAL_DATE_FORMAT="%Y-%m-%d"
+STATE_VAL = "NC"
+BACK_OFF_WINDOW = 21 
+
+#Define Dataframe Headers
+COL_DATE_VAL = "Date_Val"
+COL_POSITIVE_CASES = "Positive_Cases"
+COL_TOTAL_TESTS = "Total_Tests"
+COL_PERCENT_POSITIVE = "Percent_Positive"
+COL_HOSPITAL_COUNT = "Hospitalized_Count"
+
+#COVIDUS DataSet Measures
+HOSPITALIZED_CURRENTLY_MEASURE = "hospitalized_currently"
+
+# Define Placeholder Variables. These will be used in functions to ensure consistency
+US_Seasons = 0
+US_Diffs = 0
+
+NC_Seasons = 0
+NC_Diffs = 0
+```
+
+In this section helper functions will be defined. These helper functions are repeated numerous times in this analysis. As with the constant definitions above this section provides a single place to modify analysis, if necessary. 
+```{r, message=FALSE, warning=FALSE, results = FALSE, fig.show=FALSE}
+# Define Helper functions
+RollingASECalc = function(values, phis, thetas, seasons, diffs, sampleSize, horizon){
+  
+ASEHolder = numeric()
+
+ for( i in 1:(length(values)-(sampleSize + horizon) + 1))
+{
+  forecasts = fore.aruma.wge(values[i:(i+(sampleSize-1))],phi = phis, theta = thetas, s = seasons, d = diffs,n.ahead = horizon,lastn=FALSE)
+  
+  ASE = mean((values[(sampleSize+i):(sampleSize + i + (horizon) - 1)] - forecasts$f)^2)
+  
+  ASEHolder[i] = ASE
+} 
+
+return(ASEHolder)
+}
+
+RollingASECalcMLP = function(values, sampleSize, horizon){
+  
+ ASEHolder = numeric()
+
+ for( i in 1:(length(values)-(sampleSize + horizon) + 1))
+{
+  forecasts = forecast(values[i:(i+(sampleSize-1))], h = horizon)
+  
+  ASE = mean((values[(sampleSize+i):(sampleSize+ i + (horizon) - 1)] - forecasts$mean)^2)
+  
+  ASEHolder[i] = ASE
+} 
+
+return(ASEHolder)
+}
+
+GetRollingWindowASEInfo = function(modelName, ASEVals){
+  
+ hist(RollingASEUS7Day,main=paste("Histogram of ", modelName, " Windowed ASE"))
+ WindowedASE_Mean = mean(ASEVals)
+ WindowedASE_Median = median(ASEVals)
+ 
+ summary(ASEVals)
+
+ #Print Mean WindowedASE
+ print(paste(modelName, " Windowed ASE Mean: ",WindowedASE_Mean))
+
+ #Print Median WindowedASE
+ print(paste(modelName, " Windowed ASE Median: ",WindowedASE_Median)) 
+}
+
+ RollingASECalcVAR = function(val1, val2, pVal, sampleSize, horizon){
+  
+ ASEHolder = numeric()
+
+ for( i in 1:(length(val1)-(sampleSize + horizon) + 1))
+{
+
+  X = cbind(val1[1:(i+(sampleSize-1))],val2[i:(i+(sampleSize-1))])
+  #names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+
+  lsfit=VAR(X,p=pVal,type="const")
+  preds=predict(lsfit,n.ahead=horizon)
+  
+  ASE = mean((val1[(sampleSize+i):(sampleSize+ i + (horizon) - 1)] - preds$fcst$y1[,1])^2)
+  
+  ASEHolder[i] = ASE
+} 
+
+return(ASEHolder)
+ }
+
+```
+
+
+This section of code is where the data sets are loaded for analysis from the COVID19US package. Two data frames are defined to hold all of the data:
+
+* df_US_Percent_Positive - contains a daily listing of US percent positive values 
+* df_NC_Percent_Positive - contains a daily listing of NC percent positive values
+
+As previously stated the percent positive metric is the number of positive cases divided by the total number of cases. For analysis purposes the values are still decimal values and have not been converted to percentages. 
+```{r,message=FALSE, warning=FALSE,output=FALSE}
+
+#Percent Positive Definition Articles
+#https://www.cnn.com/2020/11/17/health/covid-19-percent-positive-explainer/index.html
+#https://www.jhsph.edu/covid-19/articles/covid-19-testing-understanding-the-percent-positive.html#:~:text=The%20percent%20positive%20is%20exactly,total%20tests)%20x%20100%25.
+
+# Load the US Daily Data
+df_US_Daily_Data = get_us_daily()
+
+#Filter the data and create a dataframe that is just percent positive cases
+df_US_Percent_Positive = data.frame(df_US_Daily_Data$date, df_US_Daily_Data$positive, df_US_Daily_Data$total_test_results, df_US_Daily_Data$positive/df_US_Daily_Data$total_test_results)
+names(df_US_Percent_Positive) = c(COL_DATE_VAL, COL_POSITIVE_CASES, COL_TOTAL_TESTS, COL_PERCENT_POSITIVE)
+
+#Sort the data by date descending for the initial realization. The data comes in reverse order and we want to ensure it's displayed correctly
+df_US_Percent_Positive = df_US_Percent_Positive %>% arrange(as.Date(Date_Val,format=DATE_FORMAT))
+
+# Load the daily NC data
+df_NC_Daily_Data = get_states_daily(state=STATE_VAL)
+
+#Filter the data and create a dataframe that is just percent positive cases
+df_NC_Percent_Positive = data.frame(df_NC_Daily_Data$date, df_NC_Daily_Data$positive, df_NC_Daily_Data$total_test_results, df_NC_Daily_Data$positive/df_NC_Daily_Data$total_test_results)
+names(df_NC_Percent_Positive) = c(COL_DATE_VAL, COL_POSITIVE_CASES, COL_TOTAL_TESTS, COL_PERCENT_POSITIVE)
+
+#Sort the data by date descending for the initial realization (Order doesn't really matter)
+df_NC_Percent_Positive = df_NC_Percent_Positive %>% arrange(as.Date(Date_Val,format=DATE_FORMAT))
+```
+
+The following chunk of code loads in the hospitalization data from the COVIDUS package. As with the percent positive data, two data frames will be created:
+
+* df_US_Hospital - contains a daily listing of hospitalizations for the total US
+* df_NC_Hospital - contains a daily listing of hospitalizations for all of NC
+
+With the hospitalization data there are some missing valued identified. In tracking back the data, it looks as though these missing values were early in the COVID-19 data reporting. For analysis purposes the assumption will be made that there were no reported hospitalizations during these specific dates and the values will be set to zero.
+
+```{r,message=FALSE, warning=FALSE,output=FALSE}
+#https://kjhealy.github.io/covdata/articles/codebook.html
+#data current as of 11/25/2020
+
+
+#Get the number of hospitalized patients in the US
+df_US_Hospitalizations_Total = covus %>% filter(measure %in% c(HOSPITALIZED_CURRENTLY_MEASURE))
+
+#Build short dataframe and sort the data
+df_US_Hospital = data.frame(df_US_Hospitalizations_Total$date,df_US_Hospitalizations_Total$count)
+names(df_US_Hospital) = c(COL_DATE_VAL,COL_HOSPITAL_COUNT)
+
+df_US_Hospital = df_US_Hospital %>% arrange(as.Date(Date_Val,format=HOSPITAL_DATE_FORMAT))
+
+# for missing values assume no hospitalizations
+df_US_Hospital[is.na(df_US_Hospital)] = 0
+
+# summarize the data so there are single dates
+df_US_Hospital <- df_US_Hospital %>%
+  mutate(Date_Val = as.Date(Date_Val, format=HOSPITAL_DATE_FORMAT)) %>%
+  group_by(Date_Val) %>% 
+  summarise(total_count=sum(Hospitalized_Count)) 
+
+names(df_US_Hospital) = c(COL_DATE_VAL,COL_HOSPITAL_COUNT)
+
+#Get the number of hospitalized patients in NC
+df_NC_Hospitalizations_Total = covus %>% filter(state==STATE_VAL & measure %in% c(HOSPITALIZED_CURRENTLY_MEASURE))
+
+#Build short dataframe and sort the data 
+df_NC_Hospital = data.frame(df_NC_Hospitalizations_Total$date,df_NC_Hospitalizations_Total$count)
+names(df_NC_Hospital) = c(COL_DATE_VAL,COL_HOSPITAL_COUNT)
+
+df_NC_Hospital = df_NC_Hospital %>% arrange(as.Date(Date_Val,format=DATE_FORMAT))
+
+# for missing values assume no hospitalizations
+df_NC_Hospital[is.na(df_NC_Hospital)] = 0
+```
+
+In the final chunk of code the four data frames defined above are combined into two data frames: one for total US and one for NC. Combining the dataframes in this way makes analysis easier and also allows for keeping the data in sync. As noted previously, the percent positive data is updated daily while the hospitalization data lags. Combining the dataframes in this way ensures the data will be mapped to the lagged data
+
+```{r,message=FALSE, warning=FALSE,output=FALSE}
+# align hospitalization and percent positive dataframes to ensure we're aligned completely. Hospitalization data only goes to 11/25 as of current
+
+df_US_Final = merge(df_US_Percent_Positive,df_US_Hospital)
+
+df_NC_Final = merge(df_NC_Percent_Positive,df_NC_Hospital)
+```
+
+As a final step in EDA, verify that there are no missing values and provide a quick look at summary statistics to ensure that the data seems reasonable.
+
+```{r, confirm_data-US,message=FALSE, warning=FALSE,output=FALSE}
+ summary(df_US_Final)
+```
+```{r,message=FALSE, warning=FALSE,output=FALSE}
+ summary(df_NC_Final)
+```
+From the results above for both the US and NC dataframes there are no missing values identified. Additionally, the values for each column in the dataframe look to be reasonable. It can also be seen that the maximum date column aligns to the known data date of November 25, 2020. 
+
+## Time Series Analysis
+
+The time series analysis for both the United States (US) and North Carolina (NC) will be performed throughout the remaining sections of this document. The analysis will start at the US level and then move to NC specifically. For each of the geographic regions a univariate and multi-variate analysis will be performed. The univariate analysis will focus only on the single variable percent positive. The multi-variate analysis will investigate any interrelations between hospitalizations and the percent positive rate. Within the univariate and multi-variate analysis different time series modeling techniques wil be leverage. 
+
+In order to compare models through this analysis, the rolling window ASE metric will be used. This metric creates a window into the forecasted data and compares it to the actual data. This allows for an analysis of how well the time series model is able to forecast the data. When comparing ASE metrics the lower the metric the better the model.  
+
+### US Univariate Analysis
+
+#### ARIMA Analysis
+
+The initial time series model that will be created will be an ARIMA-type model. These models are relatively easy to build and provide good insight into the data characteristics. The first step in the ARIMA modeling process is to simply plot the realization of the data along with ACF and the spectral density. The ACF plot will provide an indication of model characteristics that may need to be taken into account. The spectral density plot will also provide an indication of model characteristics and also allows for confirming seasonality within the data, if there is any. 
+
+```{r,message=FALSE,warning=FALSE}
+# Look at active cases in the US
+USPlotTSOut = plotts.sample.wge(df_US_Final$Percent_Positive)
+
+# Spectral Density shows large peak around zero
+# ACF shows slow damping. Assume non stationary. Difference the data
+
+```
+
+From the realization (top-left plot), there is a large peak and then the data looks to start to level off a bit. The realization does not indicate any wandering behavior, where the data is increasing or decreasing over time, nor do is there any indication of cyclic behavior. Moving to the ACF plot (top-right plot), the data looks to be slowly damping. The spectral density plot (bottom-right plot) indicates a large peak at zero and no additional peaks in the data. This indicator coupled with the slow damping in the ACF plot would indicate that the data may not be stationary at this point in time. In order to attempt to obtain more stationary data a difference calculation will be executed on the data. 
+
+```{r,message=FALSE,warning=FALSE}
+dfUSCasesDiff = df_US_Final$Percent_Positive
+dfUSCasesDiff = artrans.wge(dfUSCasesDiff,phi.tr=1)
+```
+After differencing the data one time, the realization of the differenced data (bottom-left plot) is starting to look a bit more stationary. In addition, the differenced ACF plot (bottom-right plot) begins to indicate a bit more of a slowly damping behavior. These factors indicate that a second difference of the data may be in order to ensure stationarity.
+
+```{r,message=FALSE,warning=FALSE}
+dfUSCasesDiff = artrans.wge(dfUSCasesDiff,phi.tr=1)
+```
+Executing the second difference of the data, the differenced realization (bottom-left plot) looks much more stationary. This if further confirmed with the ACF plot (bottom-right plot). At this point in time, the data can be considered stationary and modeling steps can move forward. Leveraging the differenced data, the AR(p) and MA(q) component values can be determined. In order to determine the best fit for these components both the AIC and BIC metrics will be used. The AR(p) component will be searched from zero (0) to fifteen (15) and the MA(q) component will be searched from zero (0) to fifteen (15). 
+
+```{r,message=FALSE,warning=FALSE}
+#Get estimates for AIC - 6,3 - best; 1-3 common
+aic5.wge(dfUSCasesDiff,p=0:15,q=0:5)
+
+#Get estimates for BIC - 1,1 - best; 1-3 common
+aic5.wge(dfUSCasesDiff,p=0:15,q=0:5,type="bic")
+```
+From the AR(p) and MA(q) selection process above, there is a commonality between p=13 and q=0 across both the AIC and BIC calculations. Given the commonality between both metrics this will be the starting point for the model. 
+
+```{r,message=FALSE,warning=FALSE}
+
+# Set the p,q, and d values for later use
+USSelPVal = 13
+USSelQVal = 0
+US_Diffs = 2
+```
+
+Now that the p and q values are defined for the data the actual coefficients of the ARIMA model will be estimated. These coefficients will assist in providing a true understanding of the model. 
+
+```{r,message=FALSE,warning=FALSE}
+#Estimate off of 13,0 model since it's consistent between AIC and BIC
+US.est = est.arma.wge(dfUSCasesDiff,p=USSelPVal,q=USSelQVal)
+paste("White Noise Variance: ",US.est$avar)
+paste("Data Mean: ", mean(df_US_Final$Percent_Positive))
+```
+From the output above the coefficients of the model are displayed as well as the factor table of the model. The factor table indicates the influence each individual factor has on the model and whether the root of that factor is real or complex. From the factor table, there are six (6) complex roots. Of the seven (7) total factors the first three factors have high influence as they are close to 1. 
+
+Continuing the model development, the residuals from the model parameter estimates need to be evaluated. These will be evaluated in two ways: visually and through the Ljung-Box test. Each of these methods will help to determine if the residuals in the model are white noise are not. Modeling down to white noise would indicate that there is minimal to no "information" left in the remaining data and thus the model would contain everything. However, even with the residuals not being white noise the model can still be leveraged. 
+
+In evaluating the residuals for white noise the first step will be a visual inspection of the residual ACF plot. The residual ACF plot, shown below (top-right), indicates that there is only white noise left in the model. Only one of the autocorrelations is outside the limits which is roughly expected at the shown timeframe. 
+
+```{r, message=FALSE, warning=FALSE}
+#Test the residuals for white noise using visual test
+USResPlots = plotts.sample.wge(US.est$res,arlimits=TRUE)
+```
+The Ljung-Box test is another test that can be leveraged to test for white noise in the residuals. The Ljung-Box test evaluates the autocorrelations as a group with the null hypothesis indicating that all the autocorrelations together equal zero. In order to determine if the null hypothesis is accepted or rejected, p-values from the Ljung-Box test will be evaluated. Each p-value will be tested against an alpha of 0.05. This would indicate a 95% confidence level. It is best practice to execute the Ljung-Box test twice with differing values of the K parameter. In this case K will be set to 24 and 48 respectively.
+
+```{r, message=FALSE, warning=FALSE}
+#Test the residuals for white noise using Ljung-Box test
+ljung.wge(US.est$res,p=USSelPVal,q=USSelQVal)
+ljung.wge(US.est$res,p=USSelPVal,q=USSelQVal,K=48)
+```
+The results of the Ljung-Box test executions confirm that for K=24 the p-value is 0.0231 which at alpha = 0.05 would indicate a failure to reject the null hypothesis. At K=48, the p-value is 0.0045 which at alpha=0.05 would indicate a rejection of the null hypothesis. Hence, there is a bit of a mixed result. Visually it seems that the residuals are white noise and one of the Ljung-Box test also supports this. The second Ljung-Box test does not support white noise residual. Given that there does seem to be some indication of white noise in the model residuals, modeling will continue.
+
+Thus the final model that will be leveraged will be an ARIMA(13,2,0). 
+
+In order to evaluate this model, the data will be forecasted for a short term horizon of 7 days and a long term horizon of 90 days (3 months), The Rolling Window ASE will be leveraged as the evaluation metric for both of these horizons.
+
+```{r, message=FALSE, warning=FALSE}
+ #Rolling Window ASE Calc - 7 Days
+RollingASEUS7Day = RollingASECalc(df_US_Final$Percent_Positive,phis=US.est$phi, thetas = US.est$theta, seasons=US_Seasons, diffs=US_Diffs, horizon=SHORT_TERM_FORECAST_HORIZON, sampleSize=SAMPLE_SIZE_WINDOW)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 7 Days"
+ GetRollingWindowASEInfo(modelName, RollingASEUS7Day)
+```
+
+```{r, message=FALSE, warning=FALSE, output=FALSE, fig.show=FALSE}
+ #Rolling Window ASE Calc - 90 Days
+RollingASEUS90Day = RollingASECalc(df_US_Final$Percent_Positive,phis=US.est$phi, thetas = US.est$theta, seasons=US_Seasons, diffs=US_Diffs, horizon=LONG_TERM_FORECAST_HORIZON, sampleSize=SAMPLE_SIZE_WINDOW)
+```
+
+```{r,message=FALSE,warning=FALSE}
+modelName = "US Model - 90 Days"
+GetRollingWindowASEInfo(modelName, RollingASEUS90Day)
+```
+The rolling window ASEs are as follows:
+
+* Rolling Window ASE - 7 Day: 1.26780e-06
+* Rolling Window ASE - 90 Day: 0.0017
+
+Now the individual forecasts for the short term and long term forecast horizons can be evaluated. The first evaluation will be the short term horizon and how well the forecast has been estimated.
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 7 days ahead - zoom in
+fore.US7 = fore.aruma.wge(df_US_Final$Percent_Positive,phi=US.est$phi,theta=US.est$theta,d=US_Diffs,n.ahead=SHORT_TERM_FORECAST_HORIZON,lastn=TRUE)
+```
+In evaluating the forecasts above, it is difficult to tell from the full forecast just how well the forecast estimations are. The confidence intervals on the forecast are wide. In order to get a better view of the forecast compared to the original the plot below will provide better indications.
+
+```{r, message=FALSE, warning=FALSE}
+startPoint = length(df_US_Final$Percent_Positive) - 6
+endPoint = length(df_US_Final$Percent_Positive)
+
+tl = seq(startPoint,endPoint)
+orig = df_US_Final$Percent_Positive[startPoint:endPoint]
+forecast = fore.US7$f
+df_US7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_US7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("US Cases: Original vs. Forecast - 7 Day Horizon") + 
+  scale_color_manual(values = colors)
+
+```
+In comparing the 7 day forecast to the original, the forecast trends well with the original data. Initially the forecast starts off lower but then progresses higher than the original data. Leveraging the forecast to project ahead on the short term horizon (7-days), the plot below shows the forecast with the large confidence interval bands that are produced.
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 7 days ahead
+fore.US7 = fore.aruma.wge(df_US_Percent_Positive$Percent_Positive,phi=US.est$phi,theta=US.est$theta,d=US_Diffs,n.ahead=SHORT_TERM_FORECAST_HORIZON)
+
+```
+Moving to the long term horizon (90-day) the same approach will be taken. First the comparison of the forecast to the original and then a projected forecast of the data. From the comparison of forecast data to original data the trends seem to be that the long term forecast is close to the original data. The confidence intervals are still wide which leaves some room for changes. 
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 90 days ahead - zoom in
+fore.US90 = fore.aruma.wge(df_US_Percent_Positive$Percent_Positive,phi=US.est$phi,theta=US.est$theta,d=US_Diffs,n.ahead=LONG_TERM_FORECAST_HORIZON,lastn=TRUE)
+```
+Zooming into the forecast projection, below, the forecast trend is lower than the original data. The forecast maintains a downward linear trend which for the first part of the forecast maps well with the original data. At the end of the forecast the original and the forecast deviate with the forecast continuing the downward trend and the original data starting an upward trend. 
+
+```{r, message=FALSE, warning=FALSE}
+startPoint = length(df_US_Final$Percent_Positive) - 89
+endPoint = length(df_US_Final$Percent_Positive)
+
+tl = seq(startPoint,endPoint)
+orig = df_US_Final$Percent_Positive[startPoint:endPoint]
+forecast = fore.US90$f
+df_US90 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_US90,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("US Cases: Original vs. Forecast - 90 Day Horizon") + 
+  scale_color_manual(values = colors)
+```
+
+As shown below, the projected forecast seems to have a few initial higher values and then trails off to a mean value as time progresses. As expected the confidence intervals for the forecast continue to get wider the further away from the data the forecast goes.
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 90 days (3 months) ahead
+fore.US90 = fore.aruma.wge(df_US_Percent_Positive$Percent_Positive,phi=US.est$phi,theta=US.est$theta,d=US_Diffs,n.ahead=LONG_TERM_FORECAST_HORIZON)
+```
+#### Multi-Layer Perceptron (MLP)
+
+Another time series modeling approach that can be taken is to leverage a neural network, also called a Multi-Layer Perceptron (MLP). Through this model an input layer is defined. Each input layer is connected to a "hidden layer". The connection between the input layer and the "hidden layer" contains a weighting. The "hidden layer" is used to approximate any continuous function. Within the MLP model there can be one or more hidden layers. The "hidden layers" then all connect to an output layer. The output layer provides the final result of the model. 
+
+As was done for the ARIMA modeling, the MLP modeling will be very similar. First the model will be evaluated. The model will be set to perform 50 repetitions of the MLP. Each of these repetition results will be combined based on the mean calculation. In the case of the MLP, the models will be executed twice. Once to see evaluate the model on the base data and secondly to take into account the differencing that was seen in the initial ARIMA evaluation.
+
+Evaluating the model with the base data results in the following:
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(100)
+fit.mlp.US = mlp(ts(df_US_Final$Percent_Positive),reps = NN_REPS, comb = "mean",hd.auto.type="cv")
+fore.mlp.US = forecast(fit.mlp.US) # full forecast
+fore.mlp.US7 = forecast(fit.mlp.US, h = SHORT_TERM_FORECAST_HORIZON)
+fore.mlp.US90 = forecast(fit.mlp.US, h =LONG_TERM_FORECAST_HORIZON)
+```
+
+The visual below represents the MLP that was leveraged for the analysis. The MLP model has three (3) input layers, two (2) hidden layers and an output layer. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fit.mlp.US)
+```
+As a reminder, the plot below shows the current realization of the percent positive data for the US.
+
+```{r, message=FALSE, warning=FALSE}
+plot(df_US_Final$Percent_Positive, type = "l", ylab="Percent Positive", main="Percent Positive - Total US")
+```
+The plot below shows the 7-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow the curve fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.US7, ylab="Percent Positive", main="Percent Positive - 7 Day Forecast - Total US")
+```
+
+The plot below shows the 90-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow the curve fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.US90,ylab="Percent Positive", main="Percent Positive - 7 Day Forecast - Total US")
+```
+For the comparisons to the other models, the rolling window ASE will be calculated.
+```{r, message=FALSE, warning=FALSE}
+RollingASECalcMLP7Day = RollingASECalcMLP(fit.mlp.US$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASECalcMLP90Day = RollingASECalcMLP(fit.mlp.US$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 7 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMLP7Day)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 90 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMLP90Day)
+```
+The rolling window ASE plots for this iteration of the MLP are:
+
+* Rolling Window ASE - 7 Day: 2.019568e-06
+* Rolling Window ASE - 90 Day: 0.00053
+
+In comparison to the ARIMA(13,2,0) model that was developed these ASE values are lower for the 90 day horizon but slightly higher for the 7-day horizon. 
+
+#### MLP Analysis - Differenced Data
+The MLP model will now be executed taking into account the differencing that was seen through the ARIMA analysis. 
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(100)
+fit.mlp.USDiff = mlp(ts(df_US_Final$Percent_Positive),reps = NN_REPS, comb = "mean",hd.auto.type="cv", difforder=2)
+fore.mlp.USDiff = forecast(fit.mlp.USDiff)
+fore.mlp.US7Diff = forecast(fit.mlp.USDiff, h = SHORT_TERM_FORECAST_HORIZON)
+fore.mlp.US90Diff = forecast(fit.mlp.USDiff, h =LONG_TERM_FORECAST_HORIZON)
+```
+
+The visual below represents the MLP that was leveraged for the analysis. The MLP model has three (4) input layers, two (2) hidden layers and an output layer. 
+```{r, message=FALSE, warning=FALSE}
+plot(fit.mlp.USDiff)
+```
+As a reminder, the plot below shows the current realization of the percent positive data for the US.
+
+```{r, message=FALSE, warning=FALSE}
+plot(df_US_Final$Percent_Positive, type = "l", ylab="Percent Positive", main="Percent Positive - Total US")
+```
+The plot below shows the 7-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow the curve fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.US7Diff, ylab="Percent Positive", main="Percent Positive - 7 Day Forecast - Total US")
+```
+The plot below shows the 90-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow a more downward trajectory that the direction the original realization is moving toward. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.US90Diff,ylab="Percent Positive", main="Percent Positive - 90 Day Forecast - Total US")
+```
+For the comparisons to the other models, the rolling window ASE will be calculated.
+
+```{r, message=FALSE, warning=FALSE}
+RollingASECalcMLP7Day = RollingASECalcMLP(fit.mlp.USDiff$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASECalcMLP90Day = RollingASECalcMLP(fit.mlp.USDiff$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 7 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMLP7Day)
+```
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 90 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMLP90Day)
+```
+The rolling window ASE plots for this iteration of the MLP are:
+
+* Rolling Window ASE - 7 Day: 2.019568e-06
+* Rolling Window ASE - 90 Day: 0.00053
+
+In comparison to the ARIMA(13,2,0) model that was developed these ASE values are lower for the 90 day horizon but slightly higher for the 7-day horizon. The ASEs are approximately the same as the original MLP model. From a visual perspective the original MLP model seems to forecast the data trend better. 
+
+#### Univariate Ensemble Modeling
+
+Ensemble modeling is a way of combining models to see if the positives of both models will make the forecasts better. In the univariate modeling case the ARIMA(13,2,0) model and the non-differenced MLP model will be combined to see if there is better performance. Ensemble models will be executed for both the short-term and long-term forecasts. 
+
+Start with the short term forecast. The ensemble projection, shown in green, seems to track well for the short-term timeframe.
+```{r, message=FALSE, warning=FALSE}
+
+startPos = length(df_US_Final$Percent_Positive) - SHORT_TERM_FORECAST_HORIZON
+endPos = length(df_US_Final$Percent_Positive)-1
+  
+USUV7Ensemble = (fore.US7$f + fore.mlp.US7$mean)/2
+
+plot(seq(1,length(df_US_Final$Percent_Positive),1),df_US_Final$Percent_Positive, type = "l",xlim = c(1,length(df_US_Final$Percent_Positive)-1),xlab= "Time",ylab = "Percent Positive", main = "Total US - Percent Positive - 7 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), USUV7Ensemble, type = "l", col = "green")
+
+USUV7EnsembleASE = mean((df_US_Final$Percent_Positive[startPos:endPos] - USUV7Ensemble)^2)
+```
+
+Now move to the 90 day forecast. The long-term forecast for the ensemble does not track well to the data. It has a sharp upward trend when compared to the original data plot.
+```{r, message=FALSE, warning=FALSE}
+startPos = length(df_US_Final$Percent_Positive) - LONG_TERM_FORECAST_HORIZON
+endPos = length(df_US_Final$Percent_Positive)-1
+
+USUV90Ensemble = (fore.US90$f + fore.mlp.US90$mean)/2
+
+plot(seq(1,length(df_US_Final$Percent_Positive),1),df_US_Final$Percent_Positive, type = "l",xlim = c(1,length(df_US_Final$Percent_Positive)-1), xlab= "Time",ylab = "Percent Positive", main = "Total US - Percent Positive - 90 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), USUV90Ensemble, type = "l", col = "green")
+
+USUV90EnsembleASE = mean((df_US_Final$Percent_Positive[startPos:endPos] - USUV90Ensemble)^2)
+```
+ASEs for the ensemble models are:
+```{r, message=FALSE, warning=FALSE}
+ print(paste("ASE Ensemble 7-Day: ", USUV7EnsembleASE))
+ print(paste("ASE Ensemble 90-Day: ", USUV90EnsembleASE))
+```
+The ASEs for both the 7 day and 90 day ensemble models are larger than any othe the other models developed.
+
+#### US Univariate Modeling Summary
+
+In summary for US univariate modeling, the following models were developed with ASEs for each of the forecast periods. As shown, the MLP models seemed to perform the best on both forecasts. Individually the ARIMA(13,2,0) model performed best on the 7-day horizon and the MLP performed best on the 90-day horizon.
+
+```{r table1, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl = "
+| Method                     | ASE - 7 Day    | ASE - 90 Day     |
+|---------------------------:|---------------:|-----------------:|
+| ARIMA(13,2,0)              |   1.26780e-06  |    0.00173       |
+| MLP - No Difference        |   2.01956e-06  |    0.00053       |
+| MLP - Difference = 2       |   2.01956e-06  |    0.00053       |
+| Ensemble                   |   1.37443e-05  |    0.00099       |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+### Multi-variate analysis
+
+Progressing forward in the US Analysis, the time series modeling will now shift to multivariate analysis. In multivariate analysis additional variables are added to the analysis to continue to refine the model. 
+For this analysis the number of patients hospitalized will be used as the external variable. The goal is to see if the number of hospitalizations is a leading or lagging indicator for the percent positive metric.
+
+Initially a cross correlation plot will be built to see if there is any correlation between the two variables. As shown below, the cross correlation plot seems to indicate that there is a correlation around lag -15, -14, -13. All three of these lags have the exact same value.
+
+#### Cross Correlation Plots
+```{r, message=FALSE, warning=FALSE}
+  #x1 = dependent var
+  #x2 = independent var 
+  # call is ccf(x2,x1)
+  ccf(df_US_Final$Percent_Positive, df_US_Final$Hospitalized_Count) # looks like correlation may be at lag 14 (seems to match known requirements of quarantine) with peaks the same at -15,-14,-13
+
+```
+Now that it is understood that the hospitalization count and percent positive rate are correlated, multivariate analysis can begin. In executing the multivariate analysis two different types of model development will occur. Just as with the univarite model a MLP model will be build for the multivariate analysis. In addition to the MLP model a VAR model will be developed. A VAR model allows for understanding the relationships between all variable types, independent or dependent. These variables are all treated the same in a VAR model and thus could result in a better application of forecasting as all variable interactions are accounted for. 
+
+As performed in the univariate analysis forecasts for short term (7-days) and long term (90-day) horizons will be leveraged. Rolling window ASE will be used as the metric 
+
+#### VAR Analysis - 7 Day
+
+The VAR model for the 7-day horizon will be first evaluated. The default model settings will be used with a maximum lag of 15 for the model to select from.
+
+```{r, message=FALSE, warning=FALSE}
+# We know out to length of df_US_Final$Percent_Positive 
+backLen = length(df_US_Final$Percent_Positive) - SHORT_TERM_FORECAST_HORIZON
+
+X = cbind(df_US_Final$Percent_Positive[1:backLen],df_US_Final$Hospitalized_Count[1:backLen])
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "const",season = NULL, exogen = NULL)
+vsOut
+```
+From the output above, the VAR model selects a VAR(15) model based on the AIC criteria. Fitting that model to the predictions for the individual variables produces the outputs below. In this instance y1 = Percent Positive and y2 = Hospital Count. From the plots, it is shown that the VAR(15) model seems to predict those values fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="const")
+USVARPreds7Day=predict(lsfit,n.ahead=SHORT_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(USVARPreds7Day, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+Zooming in on the 7-day forecast for the percent positive from the VAR(15) model, the projected forecast initially tracks well but then deviates highly toward the end of the forecast.
+
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Percent Positive - 7day
+startPoint = length(df_US_Final$Percent_Positive) - 6
+endPoint = length(df_US_Final$Percent_Positive)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_US_Final$Percent_Positive[startPoint:endPoint]
+forecast = USVARPreds7Day$fcst$y1[,1]
+df_US7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_US7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("US Percent Positive: Original vs. Forecast - 7 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+Zooming in on the 7-day forecast for the hospitalization count from the VAR(15) model, the projected forecast trends well with the original values. 
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Hospital - 7day
+startPoint = length(df_US_Final$Hospitalized_Count) - 6
+endPoint = length(df_US_Final$Hospitalized_Count)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_US_Final$Hospitalized_Count[startPoint:endPoint]
+forecast = USVARPreds7Day$fcst$y2[,1]
+df_US7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_US7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("US Hospitalization: Original vs. Forecast - 7 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+
+Forecasting out the full 7-day period, the following is shown. The VAR model still selects the VAR(15) for the full dataset. The predictions for the 7-day horizon still seem to trend well with the variables. 
+
+```{r, message=FALSE, warning=FALSE}
+# Full Forward 7-day
+X = cbind(df_US_Final$Percent_Positive,df_US_Final$Hospitalized_Count)
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "const",season = NULL, exogen = NULL)
+vsOut
+
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="const")
+preds=predict(lsfit,n.ahead=SHORT_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(preds, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+
+#### VAR Analysis - 90 Day.
+
+The VAR model for the 90-day horizon will be first evaluated. The default model settings will be used with a maximum lag of 15 for the model to select from.
+
+```{r, message=FALSE, warning=FALSE}
+# We know out to length of df_US_Final$Percent_Positive 
+backLen = length(df_US_Final$Percent_Positive) - LONG_TERM_FORECAST_HORIZON
+
+X = cbind(df_US_Final$Percent_Positive[1:backLen],df_US_Final$Hospitalized_Count[1:backLen])
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "both",season = NULL, exogen = NULL)
+vsOut
+```
+From the output above, the VAR model selects a VAR(15) model based on the AIC criteria. Fitting that model to the predictions for the individual variables produces the outputs below. In this instance y1 = Percent Positive and y2 = Hospital Count. From the plots, it is shown that the VAR(15) model seems to predict those values fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="both")
+USVARPreds90Day=predict(lsfit,n.ahead=LONG_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(USVARPreds90Day, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+Zooming in on the 90-day forecast for the percent positive from the VAR(15) model, the projected forecast initially over shoots the original value and then crosses under the original values. It does not follow the original trend line very well.
+
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Percent Positive - 90day
+startPoint = length(df_US_Final$Percent_Positive) - 89
+endPoint = length(df_US_Final$Percent_Positive)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_US_Final$Percent_Positive[startPoint:endPoint]
+forecast = USVARPreds90Day$fcst$y1[,1]
+df_US7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_US7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("US Percent Positive: Original vs. Forecast - 90 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+
+Zooming in on the 90-day forecast for the hospitalization count from the VAR(15) model, the projected forecast does not closely follow the original data. The forecast line follows the original data early and then deviates significantly higher, resulting in an over forecast. The forecast then crosses under the original data and under forecasts. The forecast line is trending back upward following the original data in the end of the plot. 
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Percent Positive - 90day
+startPoint = length(df_US_Final$Hospitalized_Count) - 89
+endPoint = length(df_US_Final$Hospitalized_Count)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_US_Final$Hospitalized_Count[startPoint:endPoint]
+forecast = USVARPreds90Day$fcst$y2[,1]
+df_US7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_US7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("US Percent Positive: Original vs. Forecast - 90 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+
+Forecasting out the full 7-day period, the following is shown. The VAR model still selects the VAR(15) for the full dataset. The predictions for the 7-day horizon still seem to trend well with the variables. As expected the confidence intervals continue to increase the further away from the original data plots the forecast moves.
+```{r, message=FALSE, warning=FALSE}
+# Full Forward 90-day
+X = cbind(df_US_Final$Percent_Positive,df_US_Final$Hospitalized_Count)
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "const",season = NULL, exogen = NULL)
+vsOut
+
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="const")
+preds=predict(lsfit,n.ahead=LONG_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(preds, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+For comparison purposes calculate the rolling window ASEs for the VAR models.
+```{r, message=FALSE, warning=FALSE}
+RollingASEVARUS7Day = RollingASECalcVAR(df_US_Final$Percent_Positive,df_US_Final$Hospitalized_Count,pVal=vsOut$selection[1][["AIC(n)"]],sampleSize=SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASEVARUS90Day = RollingASECalcVAR(df_US_Final$Percent_Positive,df_US_Final$Hospitalized_Count,pVal=vsOut$selection[1][["AIC(n)"]],sampleSize=SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+```
+
+```{r, message=FALSE, warning=FALSE}
+GetRollingWindowASEInfo("7-Day VAR",RollingASEVARUS7Day)
+```
+
+```{r, message=FALSE, warning=FALSE}
+GetRollingWindowASEInfo("90-Day VAR",RollingASEVARUS90Day)
+```
+The rolling window ASE plots for the VAR(15) model are:
+
+* Rolling Window ASE - 7 Day:  0.00010
+* Rolling Window ASE - 90 Day: 2.6734e+35
+
+#### Multi-Layer Perceptron (MLP)
+
+Another time series modeling approach that can be taken is to leverage a neural network, also called a Multi-Layer Perceptron (MLP). Through this model an input layer is defined. Each input layer is connected to a "hidden layer". The connection between the input layer and the "hidden layer" contains a weighting. The "hidden layer" is used to approximate any continuous function. Within the MLP model there can be one or more hidden layers. The "hidden layers" then all connect to an output layer. The output layer provides the final result of the model. 
+
+First the model will be evaluated. The model will be set to perform 50 repetitions of the MLP. Each of these repetition results will be combined based on the mean calculation. For this multivariate MLP model the, similar to the VAR model, the Hospitalization count will be added to the model.
+
+Evaluating the model with the base data results in the following:
+
+```{r, message=FALSE, warning=FALSE}
+# FULL FORWARD FORECAST
+endPoint90Day = length(df_US_Final$Hospitalized_Count) - LONG_TERM_FORECAST_HORIZON -1
+endPoint7Day = length(df_US_Final$Hospitalized_Count) - SHORT_TERM_FORECAST_HORIZON-1
+fullData = data.frame(hosp=ts(df_US_Final$Hospitalized_Count)) 
+
+# Build for 7 Day Horizon
+tl = ts(df_US_Final$Percent_Positive[1:endPoint7Day])
+Sx = data.frame(hosp=ts(df_US_Final$Hospitalized_Count[1:endPoint7Day])) 
+fit.mlp.MVUS7 = mlp(tl,xreg=Sx,sel.lag = TRUE,reps=NN_REPS,hd.auto.type="cv")
+fore.mlp.MVUS7 = forecast(fit.mlp.MVUS7, h = SHORT_TERM_FORECAST_HORIZON,xreg=fullData)
+
+
+tl = ts(df_US_Final$Percent_Positive[1:endPoint90Day])
+Sx = data.frame(hosp=ts(df_US_Final$Hospitalized_Count[1:endPoint90Day])) 
+fit.mlp.MVUS90 = mlp(tl,xreg=Sx,sel.lag = TRUE,reps=NN_REPS,hd.auto.type="cv")
+fore.mlp.MVUS90 = forecast(fit.mlp.MVUS90, h = LONG_TERM_FORECAST_HORIZON,xreg=fullData)
+```
+
+The visual below represents the MLP configuration used for the short-term (7-day) forecast. The model contains four (4) input layers and one (1) hidden layer.
+```{r}
+plot(fit.mlp.MVUS7)
+```
+The visual below represents the MLP configuration used for the long-term (90-day) forecast. The model contains four (4) input layers and three (3) hidden layer.
+```{r}
+plot(fit.mlp.MVUS90)
+```
+
+The plot below shows the 7-day forecasts that were calculated from the MLP model.From the visual is seems that all of the projections for the short-term forecast were trending in the same direction. The blue color on the plot represents the mean of the projections. It does seem that this forecast begins a downward trend.
+```{r}
+plot(fore.mlp.MVUS7)
+```
+
+The plot below shows the 90-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to deviate downward sharply.
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.MVUS90)
+```
+
+For the comparisons to the other models, the rolling window ASE will be calculated.
+```{r, message=FALSE, warning=FALSE}
+RollingASECalcMVMLP7Day = RollingASECalcMLP(fit.mlp.US$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASECalcMVMLP90Day = RollingASECalcMLP(fit.mlp.US$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 7 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMVMLP7Day)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 90 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMVMLP90Day)
+```
+
+The rolling window ASE plots for this iteration of the MLP are:
+
+* Rolling Window ASE - 7 Day:  2.019568e-06
+* Rolling Window ASE - 90 Day: 0.000530
+
+In comparison to the VAR(15) model that was developed these ASE values are much lower for the MLP model.
+
+#### Multivariate Ensemble Modeling
+
+Ensemble modeling is a way of combining models to see if the positives of both models will make the forecasts better. As was done in the univariate case, models used in the multivariate analysis will be combined to see if there is better performance. Ensemble models will be executed for both the short-term and long-term forecasts. 
+
+Start with the short term forecast. The ensemble projection, shown in green, seems to deviate downward versus the original realization trending upward. 
+```{r, message=FALSE, warning=FALSE}
+startPos = length(df_US_Final$Percent_Positive) - SHORT_TERM_FORECAST_HORIZON
+endPos = length(df_US_Final$Percent_Positive)-1
+
+USMV7Ensemble = (USVARPreds7Day$fcst$y1[,1] + fore.mlp.MVUS7$mean)/2
+
+plot(seq(1,length(df_US_Final$Percent_Positive),1),df_US_Final$Percent_Positive, type = "l",xlim = c(1,length(df_US_Final$Percent_Positive)-1), xlab= "Time",ylab = "Percent Positive", main = "Total US - Percent Positive - 7 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), USMV7Ensemble, type = "l", col = "green")
+
+USMV7EnsembleASE = mean((df_US_Final$Percent_Positive[startPos:endPos] - USMV7Ensemble)^2)
+```
+Now move to the 90 day forecast. The long-term forecast for the ensemble does not track well to the data. It initially over forecasts the original values and then takes a sharp downward trend as it progresses further. 
+```{r, message=FALSE, warning=FALSE}
+startPos = length(df_US_Final$Percent_Positive) - LONG_TERM_FORECAST_HORIZON
+endPos = length(df_US_Final$Percent_Positive)-1
+
+USMV90Ensemble = (USVARPreds90Day$fcst$y1[,1] + fore.mlp.MVUS90$mean)/2
+
+plot(seq(1,length(df_US_Final$Percent_Positive),1),df_US_Final$Percent_Positive, type = "l",xlim = c(1,length(df_US_Final$Percent_Positive)-1), xlab= "Time",ylab = "Percent Positive", main = "Total US - Percent Positive - 90 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), USMV90Ensemble, type = "l", col = "green")
+
+USMV90EnsembleASE = mean((df_US_Final$Percent_Positive[startPos:endPos] - USMV90Ensemble)^2)
+```
+ASEs for the ensemble models are:
+```{r, message=FALSE, warning=FALSE}
+ print(paste("ASE Ensemble 7-Day: ", USMV7EnsembleASE))
+ print(paste("ASE Ensemble 90-Day: ", USMV90EnsembleASE))
+```
+
+#### US Multivariate Modeling Summary
+In summary for US multivariate modeling, the following models were developed with ASEs for each of the forecast periods. As shown, the MLP models seemed to perform the best on both forecasts. Individually the MLP model performed best on the 7-day horizon and the Ensemble performed slightly better than the MLP model on the 90-day horizon.
+
+```{r table2, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl = "
+| Method                     | ASE - 7 Day    | ASE - 90 Day     |
+|---------------------------:|---------------:|-----------------:|
+| VAR(15)                    |   0.00010      |    2.6734e+35    |
+| MLP                        |   2.019568e-06 |    0.000530      |
+| Ensemble                   |   1.135600e-05 |    0.000512      |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+
+## North Carolina Analysis
+Moving on to an analysis of the North Carolina (NC) specific data, a very similar modeling approach that was taken for the total US will be taken for North Carolina. The initial time series model that will be created for North Carolina (NC) will be an ARIMA-type model. These models are relatively easy to build and provide good insight into the data characteristics. The first step in the ARIMA modeling process is to simply plot the realization of the data along with ACF and the spectral density. The ACF plot will provide an indication of model characteristics that may need to be taken into account. The spectral density plot will also provide an indication of model characteristics and also allows for confirming seasonality within the data, if there is any. 
+
+```{r, message=FALSE, warning=FALSE}
+# Look at percent positive in NC
+NCPlotTSOut = plotts.sample.wge(df_NC_Final$Percent_Positive)
+```
+From the realization (top-left plot), there is a large peak at the initial outset and then the data drops off drastically over time. This is due to the data reporting for percent positive. For the first eight reports the the percent positive was 100% as both the number of positive tests and total tests were the same. This could be a reporting error however it could also be real data. For analysis purposes, it will be assumed this is real data. The realization does not indicate any wandering behavior, where the data is increasing or decreasing over time, nor do is there any indication of cyclic behavior. Moving to the ACF plot (top-right plot), the data looks to be quickly damping. The spectral density plot (bottom-right plot) indicates a large peak at zero and then three other smaller peaks. It's difficult to tell from these indicators if the data is stationary or not. As with the US data a differencing approach will be undertaken.
+
+```{r, message=FALSE, warning=FALSE}
+dfNCCasesDiff = df_NC_Final$Percent_Positive
+dfNCCasesDiff = artrans.wge(dfNCCasesDiff,phi.tr=1)
+```
+After differencing the data one time, the realization of the differenced data (bottom-left plot) is starting to look a bit more stationary. In addition, the differenced ACF plot (bottom-right plot) indicates an immediate drop off. From here it will be assumed the data is stationary. Leveraging the differenced data, the AR(p) and MA(q) component values can be determined. In order to determine the best fit for these components both the AIC and BIC metrics will be used. The AR(p) component will be searched from zero (0) to fifteen (15) and the MA(q) component will be searched from zero (0) to fifteen (15).
+
+```{r, message=FALSE, warning=FALSE}
+#Get estimates for AIC
+aic5.wge(dfNCCasesDiff,p=0:15,q=0:5)
+
+#Get estimates for BIC
+aic5.wge(dfNCCasesDiff,p=0:15,q=0:5,type="bic")
+```
+From the AR(p) and MA(q) selection process above, there is no commonality between the two selection criteria of AIC and BIC. Given this the the p=9, q=2 model from the AIC selection will be the chosen model to start as it had the lowest AIC.
+```{r, message=FALSE, warning=FALSE}
+NCSelPVal = 9
+NCSelQVal = 2
+NC_Diffs = 1
+```
+
+Now that the p and q values are defined for the data the actual coefficients of the ARIMA model will be estimated. These coefficients will assist in providing a true understanding of the model. 
+
+```{r,message=FALSE,warning=FALSE}
+NC.est = est.arma.wge(dfNCCasesDiff,p=NCSelPVal,q=NCSelQVal)
+paste("White Noise Variance: ",NC.est$avar)
+paste("Data Mean: ", mean(df_NC_Final$Percent_Positive))
+```
+From the output above the coefficients of the model are displayed as well as the factor table of the model. The factor table indicates the influence each individual factor has on the model and whether the root of that factor is real or complex. From the factor table, there are four (4) complex roots. Of the five (5) total factors the first  factor has high influence as they are close to 1. 
+
+Continuing the model development, the residuals from the model parameter estimates need to be evaluated. These will be evaluated in two ways: visually and through the Ljung-Box test. Each of these methods will help to determine if the residuals in the model are white noise are not. Modeling down to white noise would indicate that there is minimal to no "information" left in the remaining data and thus the model would contain everything. However, even with the residuals not being white noise the model can still be leveraged. 
+
+In evaluating the residuals for white noise the first step will be a visual inspection of the residual ACF plot. The residual ACF plot, shown below (top-right), indicates that there is only white noise left in the model. Only one of the autocorrelations is outside the limits which is roughly expected at the shown timeframe. 
+
+```{r testResids-Visual-NCData, message=FALSE, warning=FALSE}
+#Test the residuals for white noise using visual test
+NCResPlots = plotts.sample.wge(NC.est$res,arlimits=TRUE)
+```
+The Ljung-Box test is another test that can be leveraged to test for white noise in the residuals. The Ljung-Box test evaluates the autocorrelations as a group with the null hypothesis indicating that all the autocorrelations together equal zero. In order to determine if the null hypothesis is accepted or rejected, p-values from the Ljung-Box test will be evaluated. Each p-value will be tested against an alpha of 0.05. This would indicate a 95% confidence level. It is best practice to execute the Ljung-Box test twice with differing values of the K parameter. In this case K will be set to 24 and 48 respectively.
+
+```{r testRedids-Ljung-NCData, message=FALSE, warning=FALSE}
+#Test the residuals for white noise using Ljung-Box test
+ljung.wge(NC.est$res,p=NCSelPVal,q=NCSelQVal)
+ljung.wge(NC.est$res,p=NCSelPVal,q=NCSelQVal,K=48)
+```
+The results of the Ljung-Box test executions confirm that for K=24 the p-value is 0.01266 which at alpha = 0.05 would indicate a failure to reject the null hypothesis. At K=48, the p-value is 0.8821 which at alpha=0.05 would indicate a failure to rejectthe null hypothesis. From these results the model residuals seem to be white noise
+
+Thus the final model that will be leveraged will be an ARIMA(9,1,2). 
+
+In order to evaluate this model, the data will be forecasted for a short term horizon of 7 days and a long term horizon of 90 days (3 months), The Rolling Window ASE will be leveraged as the evaluation metric for both of these horizons.
+```{r, message=FALSE, warning=FALSE, output=FALSE, fig.show=FALSE}
+ #Rolling Window ASE Calc - 7 Days
+
+RollingASENC7Day = RollingASECalc(df_NC_Final$Percent_Positive,phis=NC.est$phi, thetas = NC.est$theta, seasons=NC_Seasons, diffs=NC_Diffs, horizon=SHORT_TERM_FORECAST_HORIZON, sampleSize=SAMPLE_SIZE_WINDOW)
+```
+
+```{r, message=FALSE, warning=FALSE}
+modelName = "NC Model - 7 Days"
+GetRollingWindowASEInfo(modelName, RollingASENC7Day)
+```
+
+```{r, message=FALSE, warning=FALSE,output=FALSE,fig.show=FALSE}
+ #Rolling Window ASE Calc - 90 Days
+
+RollingASENC90Day = RollingASECalc(df_NC_Final$Percent_Positive,phis=NC.est$phi, thetas = NC.est$theta, seasons=NC_Seasons, diffs=NC_Seasons, horizon=LONG_TERM_FORECAST_HORIZON, sampleSize=SAMPLE_SIZE_WINDOW)
+```
+
+```{r,message=FALSE,warning=FALSE}
+modelName = "NC Model - 90 Days"
+GetRollingWindowASEInfo(modelName, RollingASENC90Day)
+```
+The rolling window ASEs are as follows:
+
+* Rolling Window ASE - 7 Day: 1.95119e-06
+* Rolling Window ASE - 90 Day: 0.000256
+
+Now the individual forecasts for the short term and long term forecast horizons can be evaluated. The first evaluation will be the short term horizon and how well the forecast has been estimated.
+
+```{r forecast-7Days-NCData, message=FALSE, warning=FALSE}
+#forecast 7 days ahead
+fore.NC7 = fore.aruma.wge(df_NC_Percent_Positive$Percent_Positive,phi=NC.est$phi,theta=NC.est$theta,d=NC_Diffs,n.ahead=SHORT_TERM_FORECAST_HORIZON,lastn=TRUE)
+
+```
+In evaluating the forecasts above, it is difficult to tell from the full forecast just how well the forecast estimations are. The confidence intervals on the forecast are wide. In order to get a better view of the forecast compared to the original the plot below will provide better indications.
+```{r, message=FALSE, warning=FALSE}
+startPoint = length(df_NC_Final$Percent_Positive) - 6
+endPoint = length(df_NC_Final$Percent_Positive)
+
+tl = seq(startPoint,endPoint)
+orig = df_NC_Final$Percent_Positive[startPoint:endPoint]
+forecast = fore.NC7$f
+df_NC7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_NC7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("NC Percent Positive: Original vs. Forecast - 7 Day Horizon") + 
+  scale_color_manual(values = colors)
+
+```
+In comparing the 7 day forecast to the original, the forecast trend is higher than the original trend. The forecast does seem to rise as the original data rises and falls when the original data falls, however toward the end of the dataset the forecast and original data deviate. The original data begins to trend up while the forecast data begins to trend down. Leveraging the forecast to project ahead on the short term horizon (7-days), the plot below shows that there still may be a high forecast especially with the large confidence interval bands that are produced.
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 7 days ahead
+fore.NC7 = fore.aruma.wge(df_NC_Percent_Positive$Percent_Positive,phi=NC.est$phi,theta=NC.est$theta,d=NC_Diffs,n.ahead=SHORT_TERM_FORECAST_HORIZON)
+```
+Moving to the long term horizon (90-day) the same approach will be taken. First the comparison of the forecast to the original and then a projected forecast of the data. From the comparison of forecast data to original data the trends seem to be that the long term forecast is close to the original data. The confidence intervals are still wide which leaves some room for changes. 
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 90 days (3 months) ahead
+fore.NC90 = fore.aruma.wge(df_NC_Percent_Positive$Percent_Positive,phi=NC.est$phi,theta=NC.est$theta,d=NC_Diffs,n.ahead=LONG_TERM_FORECAST_HORIZON,lastn=TRUE)
+```
+
+Zooming into the forecast projection, below, the forecast trend is still higher than the original data. The forecast also seems to be at a mean value of about 0.08 which would be expected with the model type chosen. The overall trend of the forecast matches the original data however the increase above the original data may be a concern. 
+
+```{r, message=FALSE, warning=FALSE}
+startPoint = length(df_NC_Percent_Positive$Percent_Positive)-89
+endPoint = length(df_NC_Percent_Positive$Percent_Positive)
+
+tl = seq(startPoint,endPoint)
+orig = dfNCCasesDiff[startPoint:endPoint]
+forecast = fore.NC90$f
+df_NC90 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_NC90,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("NC Percent Positive: Original vs. Forecast - 90 Day Horizon") + 
+  scale_color_manual(values = colors)
+```
+As shown below, the projected forecast seems maintain the flat trend in the out time periods. The confidence interval bands do get wider as time progresses thus leaving room for further deviation.
+
+```{r, message=FALSE, warning=FALSE}
+#forecast 90 days (3 months) ahead
+fore.NC90 = fore.aruma.wge(df_NC_Percent_Positive$Percent_Positive,phi=NC.est$phi,theta=NC.est$theta,d=NC_Diffs,n.ahead=LONG_TERM_FORECAST_HORIZON)
+```
+#### Multi-Layer Perceptron (MLP)
+
+Another time series modeling approach that can be taken is to leverage a neural network, also called a Multi-Layer Perceptron (MLP). Through this model an input layer is defined. Each input layer is connected to a "hidden layer". The connection between the input layer and the "hidden layer" contains a weighting. The "hidden layer" is used to approximate any continuous function. Within the MLP model there can be one or more hidden layers. The "hidden layers" then all connect to an output layer. The output layer provides the final result of the model. 
+
+As was done for the ARIMA modeling, the MLP modeling will be very similar. First the model will be evaluated. The model will be set to perform 50 repetitions of the MLP. Each of these repetition results will be combined based on the mean calculation. In the case of the MLP, the models will be executed twice. Once to see evaluate the model on the base data and secondly to take into account the differencing that was seen in the initial ARIMA evaluation.
+
+Evaluating the model with the base data results in the following:
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(100)
+fit.mlp.NC = mlp(ts(df_NC_Final$Percent_Positive),reps = NN_REPS, comb = "mean",hd.auto.type="cv")
+fore.mlp.NC7 = forecast(fit.mlp.US, h = SHORT_TERM_FORECAST_HORIZON)
+fore.mlp.NC90 = forecast(fit.mlp.US, h =LONG_TERM_FORECAST_HORIZON)
+```
+
+The visual below represents the MLP that was leveraged for the analysis. The MLP model has one (1) input layers, two (2) hidden layers and an output layer. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fit.mlp.NC)
+```
+As a reminder, the plot below shows the current realization of the percent positive data for the US.
+
+```{r, message=FALSE, warning=FALSE}
+plot(df_NC_Final$Percent_Positive, type = "l", ylab="Percent Positive", main="Percent Positive - Total NC")
+```
+The plot below shows the 7-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow the curve fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.NC7, ylab="Percent Positive", main="Percent Positive - 7 Day Forecast - Total US")
+```
+
+The plot below shows the 90-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to rise sharply versus following the trend. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.NC90,ylab="Percent Positive", main="Percent Positive - 7 Day Forecast - Total NC")
+```
+For the comparisons to the other models, the rolling window ASE will be calculated.
+```{r, message=FALSE, warning=FALSE}
+RollingASECalcNCMLP7Day = RollingASECalcMLP(fit.mlp.NC$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASECalcNCMLP90Day = RollingASECalcMLP(fit.mlp.NC$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "NC Model - 7 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcNCMLP7Day)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "NC Model - 90 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcNCMLP90Day)
+```
+The rolling window ASE plots for this iteration of the MLP are:
+
+* Rolling Window ASE - 7 Day: 1.717398e-06
+* Rolling Window ASE - 90 Day: 1.30737e-05
+
+In comparison to the ARIMA(9,1,2) model that was developed these ASE values are much lower.
+
+#### MLP Analysis - Differenced Data
+The MLP model will now be executed taking into account the differencing that was seen through the ARIMA analysis. 
+
+```{r, message=FALSE, warning=FALSE}
+set.seed(100)
+fit.mlp.NC = mlp(ts(df_NC_Final$Percent_Positive),reps = NN_REPS, comb = "mean", hd.auto.type="cv", difforder=NC_Diffs)
+fore.mlp.NC7Diff = forecast(fit.mlp.NC, h = SHORT_TERM_FORECAST_HORIZON)
+fore.mlp.NC90Diff = forecast(fit.mlp.NC, h =LONG_TERM_FORECAST_HORIZON)
+```
+
+The visual below represents the MLP that was leveraged for the analysis. The MLP model has one(1) input layers, two (2) hidden layers and an output layer. 
+```{r, message=FALSE, warning=FALSE}
+plot(fit.mlp.NC)
+```
+As a reminder, the plot below shows the current realization of the percent positive data for NC.
+
+```{r, message=FALSE, warning=FALSE}
+plot(df_NC_Final$Percent_Positive, type = "l", ylab="Percent Positive", main="Percent Positive - Total NC")
+```
+The plot below shows the 7-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to drop off sharply. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.NC7Diff, ylab="Percent Positive", main="Percent Positive - 7 Day Forecast - Total NC")
+```
+The plot below shows the 90-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow a more downward trajectory that the direction the original realization is moving toward. 
+
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.NC90Diff,ylab="Percent Positive", main="Percent Positive - 90 Day Forecast - Total NC")
+```
+For the comparisons to the other models, the rolling window ASE will be calculated.
+
+```{r, message=FALSE, warning=FALSE}
+RollingASECalcNCMLP7Day = RollingASECalcMLP(fit.mlp.NC$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASECalcNCMLP90Day = RollingASECalcMLP(fit.mlp.NC$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "NC Model - 7 Days"
+
+ GetRollingWindowASEInfo(modelName,RollingASECalcNCMLP7Day)
+
+```
+```{r, message=FALSE,warning=FALSE}
+ modelName = "NC Model - 90 Days"
+
+ GetRollingWindowASEInfo(modelName,RollingASECalcNCMLP90Day)
+```
+The rolling window ASE plots for this iteration of the MLP are:
+
+* Rolling Window ASE - 7 Day: 1.717398e-06
+* Rolling Window ASE - 90 Day: 1.30737e-05
+
+In comparison to the ARIMA(13,2,0) model that was developed these ASE values are much lower. The ASEs are approximately the same as the original MLP model. From a visual perspective the original MLP model seems to forecast the data trend better given that some of the non mean analysis seems to follow the realization better. 
+
+#### Univariate Ensemble
+
+Ensemble modeling is a way of combining models to see if the positives of both models will make the forecasts better. In the univariate modeling case the ARIMA(13,2,0) model and the non-differenced MLP model will be combined to see if there is better performance. Ensemble models will be executed for both the short-term and long-term forecasts. 
+
+Start with the short-term, 7-day, forecast. Visually, the ensemble seems to predict the 7-day forecast fairly well.
+```{r, message=FALSE, warning=FALSE}
+
+startPos = length(df_NC_Final$Percent_Positive) - SHORT_TERM_FORECAST_HORIZON
+endPos = length(df_NC_Final$Percent_Positive)-1
+  
+NCUV7Ensemble = (fore.NC7$f + fore.mlp.NC7$mean)/2
+
+plot(seq(1,length(df_NC_Final$Percent_Positive),1),df_NC_Final$Percent_Positive, type = "l",xlim = c(1,length(df_NC_Final$Percent_Positive)-1),xlab= "Time",ylab = "Percent Positive", main = "Total NC - Percent Positive - 7 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), NCUV7Ensemble, type = "l", col = "green")
+
+NCUV7EnsembleASE = mean((df_NC_Final$Percent_Positive[startPos:endPos] - NCUV7Ensemble)^2)
+```
+
+Now move to the long-term, 90 day, forecast. Initially the ensemble model trends a little lower than the original realization, then moves a bit higher than the realization. Visually this does not look like an extremely large over shoot on the forecast.
+```{r, message=FALSE, warning=FALSE}
+startPos = length(df_NC_Final$Percent_Positive) - LONG_TERM_FORECAST_HORIZON
+endPos = length(df_NC_Final$Percent_Positive)-1
+
+NCUV90Ensemble = (fore.NC90$f + fore.mlp.NC90$mean)/2
+
+plot(seq(1,length(df_NC_Final$Percent_Positive),1),df_NC_Final$Percent_Positive, type = "l",xlim = c(1,length(df_NC_Final$Percent_Positive)-1), xlab= "Time",ylab = "Percent Positive", main = "Total NC - Percent Positive - 90 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), NCUV90Ensemble, type = "l", col = "green")
+
+NCUV90EnsembleASE = mean((df_NC_Final$Percent_Positive[startPos:endPos] - NCUV90Ensemble)^2)
+```
+
+ASEs for the ensemble models are:
+```{r, message=FALSE, warning=FALSE}
+ print(paste("ASE Ensemble 7-Day: ", NCUV7EnsembleASE))
+ print(paste("ASE Ensemble 90-Day: ", NCUV90EnsembleASE))
+```
+
+#### NC Univariate Modeling Summary
+
+In summary for NC univariate modeling, the following models were developed with ASEs for each of the forecast periods. As shown, the MLP models seemed to perform the best on both forecasts. 
+
+```{r table3, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl = "
+| Method                     | ASE - 7 Day    | ASE - 90 Day     |
+|---------------------------:|---------------:|-----------------:|
+| ARIMA(9,1,2)               |   1.95119e-06  |   0.000256       |
+| MLP - No Difference        |   1.717398e-06 |   1.30737e-05    |
+| MLP - Difference = 1       |   1.717398e-06 |   1.30737e-05    |
+| Ensemble                   |   1.905830e-06 |   0.000332       |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+### Multi-variate analysis
+
+Progressing forward in the NC Analysis, the time series modeling will now shift to multivariate analysis. In multivariate analysis additional variables are added to the analysis to continue to refine the model. 
+For this analysis the number of patients hospitalized will be used as the external variable. The goal is to see if the number of hospitalizations is a leading or lagging indicator for the percent positive metric.
+
+Initially a cross correlation plot will be built to see if there is any correlation between the two variables. As shown below, the cross correlation plot seems to indicate that there is a correlation around lag -15, -14, -13. All three of these lags have the exact same value.
+
+#### Cross Correlation Plots
+```{r, message=FALSE, warning=FALSE}
+  #x1 = dependent var
+  #x2 = independent var 
+  # call is ccf(x2,x1)
+  ccf(df_NC_Final$Percent_Positive, df_NC_Final$Hospitalized_Count) # looks like correlation may be at lag 14 (seems to match known requirements of quarantine) with peaks the same at -15,-14,-13
+
+```
+Now that it is understood that the hospitalization count and percent positive rate are correlated, multivariate analysis can begin. In executing the multivariate analysis two different types of model development will occur. Just as with the univarite model a MLP model will be build for the multivariate analysis. In addition to the MLP model a VAR model will be developed. A VAR model allows for understanding the relationships between all variable types, independent or dependent. These variables are all treated the same in a VAR model and thus could result in a better application of forecasting as all variable interactions are accounted for. 
+
+As performed in the univariate analysis forecasts for short term (7-days) and long term (90-day) horizons will be leveraged. Rolling window ASE will be used as the metric 
+
+### VAR Analysis - 7 Day
+
+The VAR model for the 7-day horizon will be first evaluated. The default model settings will be used with a maximum lag of 15 for the model to select from.
+
+```{r, message=FALSE, warning=FALSE}
+# We know out to length of df_US_Final$Percent_Positive 
+backLen = length(df_NC_Final$Percent_Positive) - SHORT_TERM_FORECAST_HORIZON
+
+X = cbind(df_NC_Final$Percent_Positive[1:backLen],df_NC_Final$Hospitalized_Count[1:backLen])
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "const",season = NULL, exogen = NULL)
+vsOut
+```
+From the output above, the VAR model selects a VAR(14) model based on the AIC criteria. Fitting that model to the predictions for the individual variables produces the outputs below. In this instance y1 = Percent Positive and y2 = Hospital Count. From the plots, it is shown that the VAR(14) model seems to predict those values fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="const")
+VARPredsNC7Day=predict(lsfit,n.ahead=SHORT_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(VARPredsNC7Day, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+Zooming in on the 7-day forecast for the percent positive from the VAR(14) model, the projected forecast trends much lower than the original data for percent positive.
+
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Percent Positive - 7day
+startPoint = length(df_NC_Final$Percent_Positive) - 6
+endPoint = length(df_NC_Final$Percent_Positive)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_NC_Final$Percent_Positive[startPoint:endPoint]
+forecast = VARPredsNC7Day$fcst$y1[,1]
+df_NC7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_NC7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("NC Percent Positive: Original vs. Forecast - 7 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+Zooming in on the 7-day forecast for the hospitalization count from the VAR(14) model, the projected forecast trends well with the original values but towards the end of the realization begins to deviate lower than the original data. 
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Hospital - 7day
+startPoint = length(df_NC_Final$Hospitalized_Count) - 6
+endPoint = length(df_NC_Final$Hospitalized_Count)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_NC_Final$Hospitalized_Count[startPoint:endPoint]
+forecast = VARPredsNC7Day$fcst$y2[,1]
+df_NC7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_NC7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("NC Hospitalization: Original vs. Forecast - 7 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+
+Forecasting out the full 7-day period, the following is shown. The VAR model still selects the VAR(14) for the full dataset. The predictions for the 7-day horizon still seem to trend well with the variables. 
+
+```{r, message=FALSE, warning=FALSE}
+# Full Forward 7-day
+X = cbind(df_NC_Final$Percent_Positive,df_NC_Final$Hospitalized_Count)
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "const",season = NULL, exogen = NULL)
+vsOut
+
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="const")
+VARPredsNC7DayForward=predict(lsfit,n.ahead=SHORT_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(preds, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+
+#### VAR Analysis - 90 Day.
+
+The VAR model for the 90-day horizon will be first evaluated. The default model settings will be used with a maximum lag of 15 for the model to select from.
+
+```{r, message=FALSE, warning=FALSE}
+# We know out to length of df_US_Final$Percent_Positive 
+backLen = length(df_NC_Final$Percent_Positive) - LONG_TERM_FORECAST_HORIZON
+
+X = cbind(df_NC_Final$Percent_Positive[1:backLen],df_NC_Final$Hospitalized_Count[1:backLen])
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "both",season = NULL, exogen = NULL)
+vsOut
+```
+From the output above, the VAR model selects a VAR(14) model based on the AIC criteria. Fitting that model to the predictions for the individual variables produces the outputs below. In this instance y1 = Percent Positive and y2 = Hospital Count. From the plots, it is shown that the VAR(14) model seems to predict those values fairly well. 
+
+```{r, message=FALSE, warning=FALSE}
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="both")
+VARPredsNC90Day=predict(lsfit,n.ahead=LONG_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(VARPredsNC90Day, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+Zooming in on the 90-day forecast for the percent positive from the VAR(14) model, the projected forecast initially tracks well but then deviates and over forecasts when compared to the original.
+
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Percent Positive - 90day
+startPoint = length(df_NC_Final$Percent_Positive) - 89
+endPoint = length(df_NC_Final$Percent_Positive)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_NC_Final$Percent_Positive[startPoint:endPoint]
+forecast = VARPredsNC90Day$fcst$y1[,1]
+df_NC7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_NC7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("NC Percent Positive: Original vs. Forecast - 90 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+
+Zooming in on the 90-day forecast for the hospitalization count from the VAR(14) model, the project forecast does not trend well at all with the original data. The hospitialization count initially is over projected but does start to move to the original data.
+
+```{r, message=FALSE, warning=FALSE}
+# Zoom In Percent Positive - 90day
+startPoint = length(df_NC_Final$Hospitalized_Count) - 89
+endPoint = length(df_NC_Final$Hospitalized_Count)
+
+
+tl = seq(startPoint,endPoint)
+orig = df_NC_Final$Hospitalized_Count[startPoint:endPoint]
+forecast = VARPredsNC90Day$fcst$y2[,1]
+df_NC7 = data.frame(tl,orig,forecast)
+
+colors <- c("Original" = "darkred", "Forecast" = "steelblue")
+
+ggplot(df_NC7,aes(x=tl)) + 
+  geom_line(aes(y=orig, color="Original")) + 
+  geom_line(aes(y=forecast, color="Forecast"),linetype="twodash") + 
+  theme(legend.position="top") + 
+  labs(x="Time",y="Data",color="Legend") + 
+  ggtitle("NC Hospitalization Count: Original vs. Forecast - 90 Day Horizon - VAR Model") + 
+  scale_color_manual(values = colors)
+```
+
+Forecasting out the full 90-day period, the following is shown. The VAR model still selects the VAR(14) for the full dataset. The predictions for the 90-day horizon still seem to trend well with the variables. As expected the confidence intervals continue to increase the further away from the original data plots the forecast moves.
+```{r, message=FALSE, warning=FALSE}
+# Full Forward 90-day
+X = cbind(df_NC_Final$Percent_Positive,df_NC_Final$Hospitalized_Count)
+names(X) = c(COL_PERCENT_POSITIVE,COL_HOSPITAL_COUNT)
+vsOut = VARselect(X, lag.max = 15, type = "const",season = NULL, exogen = NULL)
+vsOut
+
+lsfit=VAR(X,p=vsOut$selection[1][["AIC(n)"]],type="const")
+VARPredsNC90DayForward=predict(lsfit,n.ahead=LONG_TERM_FORECAST_HORIZON)
+
+#Plot forecast predictions
+fanchart(VARPredsNC90DayForward, colors = brewer.pal(n = 8, name = "Blues")) # Change color pallet to make distinguishable. 
+```
+For comparison purposes calculate the rolling window ASEs for the VAR models.
+```{r, message=FALSE, warning=FALSE}
+RollingASEVARNC7Day = RollingASECalcVAR(df_NC_Final$Percent_Positive,df_NC_Final$Hospitalized_Count,pVal=vsOut$selection[1][["AIC(n)"]],sampleSize=SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASEVARNC90Day = RollingASECalcVAR(df_NC_Final$Percent_Positive,df_NC_Final$Hospitalized_Count,pVal=vsOut$selection[1][["AIC(n)"]],sampleSize=SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+```
+
+```{r, message=FALSE, warning=FALSE}
+GetRollingWindowASEInfo("7-Day VAR",RollingASEVARNC7Day)
+```
+
+```{r, message=FALSE, warning=FALSE}
+GetRollingWindowASEInfo("90-Day VAR",RollingASEVARNC90Day)
+```
+The rolling window ASE plots for the VAR(14) model are:
+
+* Rolling Window ASE - 7 Day: 1.045971e-05 
+* Rolling Window ASE - 90 Day: 0.002931
+
+
+#### Multi-Layer Perceptron (MLP)
+
+Another time series modeling approach that can be taken is to leverage a neural network, also called a Multi-Layer Perceptron (MLP). Through this model an input layer is defined. Each input layer is connected to a "hidden layer". The connection between the input layer and the "hidden layer" contains a weighting. The "hidden layer" is used to approximate any continuous function. Within the MLP model there can be one or more hidden layers. The "hidden layers" then all connect to an output layer. The output layer provides the final result of the model. 
+
+First the model will be evaluated. The model will be set to perform 50 repetitions of the MLP. Each of these repetition results will be combined based on the mean calculation. For this multivariate MLP model the, similar to the VAR model, the Hospitalization count will be added to the model.
+
+Evaluating the model with the base data results in the following:
+
+```{r, message=FALSE, warning=FALSE}
+# FULL FORWARD FORECAST
+endPoint90Day = length(df_NC_Final$Hospitalized_Count) - LONG_TERM_FORECAST_HORIZON -1
+endPoint7Day = length(df_NC_Final$Hospitalized_Count) - SHORT_TERM_FORECAST_HORIZON-1
+fullData = data.frame(hosp=ts(df_NC_Final$Hospitalized_Count)) 
+
+# Build for 7 Day Horizon
+tl = ts(df_NC_Final$Percent_Positive[1:endPoint7Day])
+Sx = data.frame(hosp=ts(df_NC_Final$Hospitalized_Count[1:endPoint7Day])) 
+fit.mlp.MVNC7 = mlp(tl,xreg=Sx,sel.lag = TRUE,reps=NN_REPS,hd.auto.type="cv")
+fore.mlp.MVNC7 = forecast(fit.mlp.MVNC7, h = SHORT_TERM_FORECAST_HORIZON,xreg=fullData)
+
+# Build for 90 Day Horizon
+tl = ts(df_NC_Final$Percent_Positive[1:endPoint90Day])
+Sx = data.frame(hosp=ts(df_NC_Final$Hospitalized_Count[1:endPoint90Day])) 
+fit.mlp.MVNC90 = mlp(tl,xreg=Sx,sel.lag = TRUE,reps=NN_REPS,hd.auto.type="cv")
+fore.mlp.MVNC90 = forecast(fit.mlp.MVNC90, h = LONG_TERM_FORECAST_HORIZON,xreg=fullData)
+```
+
+The visual below represents the MLP configuration used for the short-term (7-day) forecast. The model contains five (5) input layers and one (1) hidden layer.
+```{r}
+plot(fit.mlp.MVNC7)
+```
+The visual below represents the MLP configuration used for the long-term (90-day) forecast. The model contains five (5) input layers and one (1) hidden layer.
+```{r}
+plot(fit.mlp.MVNC90)
+```
+
+The plot below shows the 7-day forecasts that were calculated from the MLP model. From the visual is seems that the majority of the projections for the short-term forecast were trending in the same direction. The blue color on the plot represents the mean of the projections. It does seem that this forecast begins an upward trend.
+```{r}
+plot(fore.mlp.MVNC7)
+```
+
+The plot below shows the 90-day forecasts that were calculated from the MLP model. From this it can be seen that there were multiple projections, both higher and lower (gray lines) but that the mean trend (blue line) seems to follow the original realization and then begin a climb upward.
+```{r, message=FALSE, warning=FALSE}
+plot(fore.mlp.MVNC90)
+```
+
+For the comparisons to the other models, the rolling window ASE will be calculated.
+```{r, message=FALSE, warning=FALSE}
+RollingASECalcMVNCMLP7Day = RollingASECalcMLP(fit.mlp.US$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=SHORT_TERM_FORECAST_HORIZON)
+RollingASECalcMVNCMLP90Day = RollingASECalcMLP(fit.mlp.US$y,sampleSize = SAMPLE_SIZE_WINDOW,horizon=LONG_TERM_FORECAST_HORIZON)
+
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 7 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMVNCMLP7Day)
+```
+
+```{r, message=FALSE,warning=FALSE}
+ modelName = "US Model - 90 Days"
+ GetRollingWindowASEInfo(modelName,RollingASECalcMVNCMLP90Day)
+```
+
+The rolling window ASE plots for this iteration of the MLP are:
+
+* Rolling Window ASE - 7 Day: 2.019568e-06  
+* Rolling Window ASE - 90 Day: 0.000530
+
+In comparison to the VAR(14) model that was developed these ASE values are much lower for the MLP model.
+
+#### Multivariate Ensemble Modeling
+
+Ensemble modeling is a way of combining models to see if the positives of both models will make the forecasts better. As was done in the univariate case, models used in the multivariate analysis will be combined to see if there is better performance. Ensemble models will be executed for both the short-term and long-term forecasts. 
+
+Start with the short term forecast. The ensemble projection, shown in green, seems to follow the actual realization fairly well. 
+```{r, message=FALSE, warning=FALSE}
+startPos = length(df_NC_Final$Percent_Positive) - SHORT_TERM_FORECAST_HORIZON
+endPos = length(df_NC_Final$Percent_Positive)-1
+
+NCMV7Ensemble = (VARPredsNC7Day$fcst$y1[,1] + fore.mlp.NC7$mean)/2
+
+plot(seq(1,length(df_NC_Final$Percent_Positive),1),df_NC_Final$Percent_Positive, type = "l",xlim = c(1,length(df_NC_Final$Percent_Positive)-1), xlab= "Time",ylab = "Percent Positive", main = "Total NC - Percent Positive - 7 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), NCMV7Ensemble, type = "l", col = "green")
+
+NCMV7EnsembleASE = mean((df_NC_Final$Percent_Positive[startPos:endPos] - NCMV7Ensemble)^2)
+```
+Now move to the 90 day forecast. The long-term forecast for the ensemble seems to track reasonably well with the observations. The forecast eventually rises above the original realization, but not to a large degree and it seems to be a gradual increase.
+```{r, message=FALSE, warning=FALSE}
+startPos = length(df_NC_Final$Percent_Positive) - LONG_TERM_FORECAST_HORIZON
+endPos = length(df_NC_Final$Percent_Positive)-1
+
+NCMV90Ensemble = (VARPredsNC90Day$fcst$y1[,1] + fore.mlp.NC90$mean)/2
+
+plot(seq(1,length(df_NC_Final$Percent_Positive),1),df_NC_Final$Percent_Positive, type = "l",xlim = c(1,length(df_NC_Final$Percent_Positive)-1), xlab= "Time",ylab = "Percent Positive", main = "Total NC - Percent Positive - 90 Day Forecast - Ensemble Model")
+lines(seq(startPos,endPos,1), NCMV90Ensemble, type = "l", col = "green")
+
+NCMV90EnsembleASE = mean((df_NC_Final$Percent_Positive[startPos:endPos] - NCMV90Ensemble)^2)
+```
+ASEs for the ensemble models are:
+```{r, message=FALSE, warning=FALSE}
+ print(paste("ASE Ensemble 7-Day: ", NCMV7EnsembleASE))
+ print(paste("ASE Ensemble 90-Day: ", NCMV90EnsembleASE))
+```
+
+#### NC Multivariate Modeling Summary
+In summary for NC multivariate modeling, the following models were developed with ASEs for each of the forecast periods. As shown, the Ensemble models generally seemed to perform the best on both forecasts. 
+
+```{r table4, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl = "
+| Method                     | ASE - 7 Day    | ASE - 90 Day     |
+|---------------------------:|---------------:|-----------------:|
+| VAR(14)                    |   1.045971e-05 |  0.002931        |
+| MLP                        |   2.019568e-06 |  0.000530        |
+| Ensemble                   |   2.578109e-07 |  0.000517        |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+
+## Conclusion
+
+The anaysis above has show that multiple time series models have been built on the COVID-19 positivity rate data for both the United States and North Carolina. A variety of time series models have been leveraged to show both univariate and multivariate modeling techniques, with hospitalization data added for multivariate analysis. 
+
+In reviewing the US models, the MLP models performed the best based on ASE calculations for both the univariate and multivariate calculations over both forecast horizons. For reference the Univariate and Multivariate ASE summary tables are shown below.
+
+```{r table5, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl = "
+| Analysis Type | Method                     | ASE - 7 Day    | ASE - 90 Day     |
+|--------------:|---------------------------:|---------------:|-----------------:|
+| Univariate    | ARIMA(13,2,0)              |   1.26780e-06  |    0.00173       |
+| Univariate    | MLP - No Difference        |   2.01956e-06  |    0.00053       |
+| Univariate    | MLP - Difference = 2       |   2.01956e-06  |    0.00053       |
+| Univariate    | Ensemble                   |   1.37443e-05  |    0.00099       |
+| Multivariate  | VAR(15)                    |   0.00010      |    2.6734e+35    |
+| Multivariate  | MLP                        |   2.019568e-06 |    0.000530      |
+| Multivariate  | Ensemble                   |   1.135600e-05 |    0.000512      |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+In reviewing the NC models, the MLP models performed the Ensemble based method performed the best in a multivariate scenario while the MLP model performed best in the univariate scenario.
+
+```{r table6, echo=FALSE, message=FALSE, warnings=FALSE, results='asis'}
+tabl = "
+| Analysis Type | Method                     | ASE - 7 Day    | ASE - 90 Day     |
+|--------------:|---------------------------:|---------------:|-----------------:|
+| Univariate    | ARIMA(9,1,2)               |   1.95119e-06  |   0.000256       |
+| Univariate    | MLP - No Difference        |   1.717398e-06 |   1.30737e-05    |
+| Univariate    | MLP - Difference = 1       |   1.717398e-06 |   1.30737e-05    |
+| Univariate    | Ensemble                   |   1.905830e-06 |   0.000332       |
+| Multivariate  | VAR(14)                    |   1.045971e-05 |   0.002931       |
+| Multivariate  | MLP                        |   2.019568e-06 |   0.000530       |
+| Multivariate  | Ensemble                   |   2.578109e-07 |   0.000517       |
+"
+cat(tabl) # output the table in a format good for HTML/PDF/docx conversion
+```
+In conclusion, the modeling of COVID-19 positivity rates is possible with even simple models such as the ones in this analysis. These models may be leveraged as a baseline for further model building. From a univariate perspective the models are relatively straight forward. It will be interesting to see, as more data becomes available, if there will be seasonal patterns that emerge. At this time none have been seen in the modeling performed in this analysis. On the multivariate front, there are many other external variables that could be included in future analysis. Understanding the impacts of weather, pollution, mask enforcement and other policy restrictions could all be added to the multivariate models to further enhance them. 
